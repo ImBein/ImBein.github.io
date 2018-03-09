@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<meta charset="utf-8">
+  <body>
+    <script src="http://d3js.org/d3.v4.min.js"></script>
+    <style>
+        td{
+            text-align: right;
+        }
+        .row:nth-child(2n){
+            background:lightgray;
+        }
+    </style>
+    <div>
+        <div>
+            Time update: 
+             <span id='minyear'></span>
+             <input type="range" name="points" min="1995" max="2012" step="1" value="0" id="slider-time" oninput="update()"> 
+             <span id='maxyear'></span>
+        </div>
+        <div onchange='update()'>
+                Filter by: 
+                <label><input type='checkbox' name='filter' value='Americas'>Americas</label>
+                <label><input type='checkbox' name='filter' value='Africa'>Africa</label>
+                <label><input type='checkbox' name='filter' value='Asia'>Asia</label>
+                <label><input type='checkbox' name='filter' value='Europe'>Europe</label>
+                <label><input type='checkbox' name='filter' value='Oceania'>Oceania</label>
+        </div>
+        <div onchange='update()'>
+            Aggregation: 
+            <label><input type='radio' name='aggregate' value='none'>None</label>
+            <label><input type='radio' name='aggregate' value='continent'>By Continent</label>
+        </div>
+    </div>
+    <script>
+    var sort_header = null;
+    const fields = ["name", "continent", "gdp", "life_expectancy", "population", "year"]      
+      
+    function setupYears(data){
+        let maxyear = d3.max(data, d => d3.max(d.years, y => y.year));
+        let minyear = d3.min(data, d => d3.min(d.years, y => y.year));
+        d3.select("#minyear").text(minyear);
+        d3.select("#maxyear").text(maxyear);
+    }
+
+
+    function getField(row, i, year){
+        var a = row[fields[i]]
+        var b = row.years.find(x => x.year == year)
+        return a || b && b[fields[i]]
+    }
+    function update(){
+      d3.json("countries_1995_2012.json", function(error, data){
+        setupYears(data);
+        d3.selectAll("table").remove();
+        var table = d3.select("body").append("table"),
+          thead = table.append("thead")
+                       .attr("class", "thead");
+          tbody = table.append("tbody");
+
+        table.append("caption")
+          .html("World Countries Ranking");
+
+        const format = [a => a, a => a, d3.formatPrefix(",.0", 1e9), d3.format(".1f"), d3.format(","), a => a]
+        var year = d3.select("#slider-time").property('value');
+        var sort_column;
+        if(sort_header){
+             sort_column = fields.indexOf(sort_header);
+        }
+        function criteria(a, b) {
+            if(sort_header == "continent"){
+                return d3.descending([a["continent"], a["name"]], [b["continent"], b["name"]]);    
+            }
+            return d3.descending(getField(a, sort_column, year), getField(b, sort_column, year));
+        };
+        thead.append("tr").selectAll("th")
+          .data(fields)
+        .enter()
+          .append("th")
+          .text(function(d) { return d; })
+          .on("click", function(header, i) {
+            sort_header = header;
+            update();
+          });
+      
+        const filters = d3.selectAll("input[type=checkbox][name=filter]").nodes().filter(x => x.checked).map(x => x.value);
+  
+        var new_data = [];
+        if(d3.select("input[name=aggregate][value=continent]").property('checked')){    
+            var nested_rows = d3.nest()
+            .key(function(d) { return  d.continent; })
+            .rollup(v => new_data = new_data.concat(v.sort(criteria)))
+            .entries(data);
+        }else{
+            new_data = data.sort(criteria);
+        }
+        
+        
+
+        var rows = tbody.selectAll("tr.row")
+          .data(new_data.filter(x => filters.length ? filters.indexOf(x.continent) > -1 : true))
+          .enter()
+          .append("tr")
+          .attr("class", "row")
+          
+          tbody.selectAll("tr.row")
+          .exit().remove();
+         var cells = rows.selectAll("td")
+          .data(function(row) {
+              return d3.range(fields.length).map(function(column, i) {
+                  return getField(row, i, year);
+              });
+          })
+          .enter()
+          .append("td")
+          .text(function(d, i) { 
+            return format[i](d);
+          })
+          .on("mouseover", function(d, i) {
+
+            d3.select(this.parentNode)
+              .style("background-color", "#F3ED86");
+        
+          }).on("mouseout", function() {
+
+          tbody.selectAll("tr")
+              .style("background-color", null)
+              .selectAll("td")
+              .style("background-color", null);
+
+          });
+        
+
+      });
+    };
+    update();
+    </script> 
+  </body>
+</html>

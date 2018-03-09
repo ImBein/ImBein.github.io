@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<meta charset="utf-8">
+  <body>
+    <script src="http://d3js.org/d3.v4.min.js"></script>
+    <style>
+        td{
+            text-align: right;
+        }
+        .row:nth-child(2n){
+            background:lightgray;
+        }
+    </style>
+    <div>
+        <div>
+            Time update: 
+             <span id='minyear'></span>
+             <input type="range" name="points" min="1995" max="2012" step="1" value="0" id="slider-time" oninput="update()"> 
+             <span id='maxyear'></span>
+        </div>
+        <div onchange='update()'>
+            Encode bars by
+            <label><input type='radio' name='encode' value='gdp' checked>GDP</label>
+            <label><input type='radio' name='encode' value='population'>Population</label>
+        </div>
+        <div onchange='update()'>
+                Filter by: 
+                <label><input type='checkbox' name='filter' value='Americas'>Americas</label>
+                <label><input type='checkbox' name='filter' value='Africa'>Africa</label>
+                <label><input type='checkbox' name='filter' value='Asia'>Asia</label>
+                <label><input type='checkbox' name='filter' value='Europe'>Europe</label>
+                <label><input type='checkbox' name='filter' value='Oceania'>Oceania</label>
+        </div>
+        <div onchange='update()'>
+            Aggregation: 
+            <label><input type='radio' name='aggregate' value='none' checked>None</label>
+            <label><input type='radio' name='aggregate' value='continent'>By Continent</label>
+        </div>
+        <div onchange='update()'>
+                Sort By:
+                <label><input type='radio' name='sort' value='name' checked>Name</label>
+                <label><input type='radio' name='sort' value='population'>Population</label>
+                <label><input type='radio' name='sort' value='gdp'>GDP</label>
+        </div>
+    </div>
+    <script>
+    
+    const fields = ["name", "continent", "gdp", "life_expectancy", "population", "year"]      
+      
+    function setupYears(data){
+        let maxyear = d3.max(data, d => d3.max(d.years, y => y.year));
+        let minyear = d3.min(data, d => d3.min(d.years, y => y.year));
+        d3.select("#minyear").text(minyear);
+        d3.select("#maxyear").text(maxyear);
+    }
+
+    function getField(row, i, year){
+        var a = row[fields[i]]
+        var b = row.years.find(x => x.year == year)
+        return a || b && b[fields[i]]
+    }
+    
+    var margin = {top: 50, bottom: 10, left:300, right: 40};
+    var width = 900 - margin.left - margin.right;
+    var height = 1800 - margin.top - margin.bottom;
+ 
+    var xScale = d3.scaleLinear().range([0, width]);
+    var yScale = d3.scaleBand().range([0, height]);
+    var colorScale = d3.scaleOrdinal();
+   
+
+    function update(){
+      d3.json("countries_1995_2012.json", function(error, data){
+        setupYears(data);
+        d3.select("svg").remove();
+        var svg = d3.select("body").append("svg")
+                .attr("width", width+margin.left+margin.right)
+                .attr("height", height+margin.top+margin.bottom);
+ 
+        var g = svg.append("g")
+               .attr("transform", "translate("+margin.left+","+margin.top+")");
+        var sort_header = d3.selectAll("input[name=sort]")
+                                .filter(function(){return this.checked;})
+                                .property('value');
+        var bardata     = d3.selectAll("input[name=encode]")
+                                .filter(function(){return this.checked;})
+                                .property('value');
+        var barcolumn   = fields.indexOf(bardata);
+        const format = [a => a, a => a, d3.formatPrefix(",.0", 1e9), d3.format(".1f"), d3.format(","), a => a]
+        var year = d3.select("#slider-time").property('value');
+        var sort_column;
+        if(sort_header){
+            sort_column = fields.indexOf(sort_header);
+        }
+        function criteria(a, b) {
+            if(sort_header == "continent"){
+                return d3.descending([a["continent"], a["name"]], [b["continent"], b["name"]]);    
+            }
+            return d3.descending(getField(a, sort_column, year), getField(b, sort_column, year));
+        };
+     
+     
+        const filters = [];
+        d3.selectAll("input[type=checkbox][name=filter]")
+                         .filter(function(){return this.checked})
+                         .each(function(){filters.push(this.value)})
+  
+        var new_data = [];
+        if(d3.select("input[name=aggregate][value=continent]").property('checked')){    
+            var nested_rows = d3.nest()
+            .key(function(d) { return  d.continent; })
+            .rollup(v => new_data = new_data.concat(v.sort(criteria)))
+            .entries(data);
+        }else{
+            new_data = data.sort(criteria);
+        }
+        
+        var actual = new_data.filter(x => filters.length ? filters.indexOf(x.continent) > -1 : true);
+        var max = d3.max(data, function(d) { return getField(d, barcolumn, year); } );
+        var min = d3.min(data, function(d) { return getField(d, barcolumn, year); } );
+        xScale.domain([min, max]).range([0, width]);
+        yScale.domain(actual.map(function(d) { return d.name; })).range([0, actual.length * 15]);
+        colorScale.domain(actual.map(function(d) { return d.name; })).range(["#DD4E00", "#F78500", "#F9C134", "#F0F4C1"])
+        var text = g
+                    .selectAll("text")
+                    .data(actual)
+                    .enter()
+                    .append("text")
+                    .attr("x", xScale(min))
+                    .attr("y", d => yScale(d.name) )
+                    .style('text-anchor', 'end')
+                    .style('text-baseline', 'middle')
+                    .text(d => d.name);
+
+        
+        var bars = g
+                    .selectAll("rect")
+                    .data(actual)
+                    .enter()
+                    .append("rect")
+                    .attr("x", xScale(min))
+                    .attr("height", 15)
+                    .attr("y", d => yScale(d.name) - 15 )
+                    .transition()
+                    .duration(1000)
+                    .attr("width", d => xScale(getField(d, barcolumn, year)))
+                    .attr("fill", d => colorScale(d.name));
+                    g
+                    .selectAll("rect")
+                    .data(actual)
+                    .exit()
+                    .transition(1000)
+                    .attr("width", 0)
+                    .remove()
+
+      });
+    };
+    update();
+    </script> 
+  </body>
+</html>
